@@ -1,0 +1,35 @@
+{
+  "language": "Solidity",
+  "sources": {
+    "contracts/Compound.sol": {
+      "content": "// SPDX-License-Identifier: MIT\r\npragma solidity ^0.8.6;\r\n\r\ninterface Erc20 {\r\n    function approve(address, uint256) external returns (bool);\r\n\r\n    function transfer(address, uint256) external returns (bool);\r\n}\r\n\r\ninterface CErc20 {\r\n    function mint(uint256) external returns (uint256);\r\n\r\n    function borrow(uint256) external returns (uint256);\r\n\r\n    function borrowRatePerBlock() external view returns (uint256);\r\n\r\n    function borrowBalanceCurrent(address) external returns (uint256);\r\n\r\n    function repayBorrow(uint256) external returns (uint256);\r\n}\r\n\r\ninterface CEth {\r\n    function mint() external payable;\r\n\r\n    function borrow(uint256) external returns (uint256);\r\n\r\n    function repayBorrow() external payable;\r\n\r\n    function borrowBalanceCurrent(address) external returns (uint256);\r\n\r\n    function borrowRatePerBlock() external view returns (uint256);\r\n}\r\n\r\ninterface Comptroller {\r\n    function markets(address) external returns (bool, uint256);\r\n\r\n    //\r\n    function enterMarkets(address[] calldata) \r\n        external\r\n        returns (uint256[] memory);\r\n\r\n    function getAccountLiquidity(address)\r\n        external\r\n        view\r\n        returns (\r\n            uint256,\r\n            uint256,\r\n            uint256\r\n        );\r\n}\r\n\r\ninterface PriceFeed {\r\n    function getUnderlyingPrice(address cToken) external view returns (uint256);\r\n}\r\n\r\ncontract Compound {\r\n    event MyLog(string, uint256);\r\n\r\n    struct BorrowInfo {\r\n        address payable _cEtherAddress;\r\n        address _comptrollerAddress;\r\n        address _cTokenAddress;\r\n        address _underlyingAddress;\r\n        uint256 _underlyingToSupplyAsCollateral;\r\n        uint256 borrows;\r\n    }\r\n\r\n    function borrowEth(\r\n        address payable _cEtherAddress, //\r\n        address _comptrollerAddress,\r\n        address _cTokenAddress, //\r\n        address _underlyingAddress,\r\n        uint256 _underlyingToSupplyAsCollateral\r\n    ) public returns (uint256) {\r\n        BorrowInfo memory borrowInfo;\r\n\r\n        borrowInfo._cEtherAddress = _cEtherAddress;\r\n        borrowInfo._comptrollerAddress = _comptrollerAddress;\r\n        borrowInfo._cTokenAddress = _cTokenAddress;\r\n        borrowInfo._underlyingAddress = _underlyingAddress;\r\n        borrowInfo._underlyingToSupplyAsCollateral = _underlyingToSupplyAsCollateral;\r\n\r\n        CEth cEth = CEth(borrowInfo._cEtherAddress);\r\n        Comptroller comptroller = Comptroller(borrowInfo._comptrollerAddress);\r\n        CErc20 cToken = CErc20(borrowInfo._cTokenAddress);\r\n        Erc20 underlying = Erc20(borrowInfo._underlyingAddress);\r\n        // Approve transfer of underlying\r\n        underlying.approve(\r\n            borrowInfo._cTokenAddress,\r\n            borrowInfo._underlyingToSupplyAsCollateral\r\n        );\r\n\r\n        // Supply underlying as collateral, get cToken in return\r\n        uint256 error = cToken.mint(borrowInfo._underlyingToSupplyAsCollateral);\r\n        require(error != 0, \"CErc20.mint Error\");\r\n\r\n        // Enter the market so you can borrow another type of asset\r\n        address[] memory cTokens = new address[](1);\r\n        cTokens[0] = borrowInfo._cTokenAddress;\r\n        uint256[] memory errors = comptroller.enterMarkets(cTokens);\r\n        if (errors[0] != 0) {\r\n            revert(\"Comptroller.enterMarkets failed.\");\r\n        }\r\n\r\n        // Get my account's total liquidity value in Compound\r\n        (uint256 error2, uint256 liquidity, uint256 shortfall) = comptroller\r\n            .getAccountLiquidity(msg.sender);\r\n        if (error2 != 0) {\r\n            revert(\"Comptroller.getAccountLiquidity failed.\");\r\n        }\r\n        require(shortfall == 0, \"account underwater\");\r\n        require(liquidity > 1, \"account has excess collateral\");\r\n\r\n        // Borrowing near the max amount will result\r\n        // in your account being liquidated instantly\r\n        emit MyLog(\"Maximum ETH Borrow (borrow far less!)\", liquidity);\r\n\r\n        // Get the collateral factor for our collateral\r\n        (bool isListed, uint256 collateralFactorMantissa) = comptroller.markets(\r\n            borrowInfo._cTokenAddress\r\n        );\r\n        emit MyLog(\"Collateral Factor\", collateralFactorMantissa);\r\n\r\n        // Get the amount of ETH added to your borrow each block\r\n        uint256 borrowRateMantissa = cEth.borrowRatePerBlock();\r\n        emit MyLog(\"Current ETH Borrow Rate\", borrowRateMantissa);\r\n\r\n        // Borrow a fixed amount of ETH below our maximum borrow amount\r\n        uint256 numWeiToBorrow = 2000000000000000; // 0.002 ETH\r\n\r\n        // Borrow, then check the underlying balance for this contract's address\r\n        cEth.borrow(numWeiToBorrow);\r\n\r\n        borrowInfo.borrows = cEth.borrowBalanceCurrent(msg.sender);\r\n        emit MyLog(\"Current ETH borrow amount\", borrowInfo.borrows);\r\n\r\n        return borrowInfo.borrows;\r\n    }\r\n}\r\n"
+    }
+  },
+  "settings": {
+    "optimizer": {
+      "enabled": false,
+      "runs": 200
+    },
+    "outputSelection": {
+      "*": {
+        "*": [
+          "abi",
+          "evm.bytecode",
+          "evm.deployedBytecode",
+          "evm.methodIdentifiers",
+          "metadata",
+          "devdoc",
+          "userdoc",
+          "storageLayout",
+          "evm.gasEstimates"
+        ],
+        "": [
+          "ast"
+        ]
+      }
+    },
+    "metadata": {
+      "useLiteralContent": true
+    }
+  }
+}
